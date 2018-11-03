@@ -148,41 +148,34 @@ public class ZooMaster implements ZooRole{
                 return;
             }
 
-            // 然后遍历assign节点，找到节点里面子节点为空的，然后将JobMessage的节点设置进去
-            List<String> assignNodePathList = zooKeeper.getChildren("/assign", false);
-            if (CollectionUtils.isEmpty(assignNodePathList)) {
-                LogUtils.printLog("没有可分配任务的assignNode");
+            // 遍历 /slave 节点，如果对应节点在 /assign 中没有子节点，那么将其分配在/ assgin 中
+            List<String> slaveNodeList = zooKeeper.getChildren("/slave", false);
+            if (CollectionUtils.isEmpty(slaveNodeList)) {
+                LogUtils.printLog("没有可执行的slave");
                 return;
             }
 
             boolean assignSuccess = false;
-            for (String assignNodePath : assignNodePathList) {
-                String assignNodeCurrentPath = "/assign/" + assignNodePath;
+            for (String slaveNodePath : slaveNodeList) {
 
-                // 找到子节点为空的
-                List<String> childNodeList = zooKeeper.getChildren(assignNodeCurrentPath, false);
+                String assignSlaveCurrentPath = "/assign/" + slaveNodePath;
 
-                if (CollectionUtils.isNotEmpty(childNodeList)) {
-
-                    // 如果不为空，说明此slave已分配，那么把它的第一个job打印出来（目前暂时只支持一个slave同时只分配一个job）
-                    String firstJobPath = assignNodeCurrentPath + "/" + childNodeList.get(0);
-                    LogUtils.printLog("path为  " + assignNodeCurrentPath + " 的已分配，数据为" + new String(zooKeeper.getData(firstJobPath,false, null)));
-                } else {
-
-                    // 将jobMessage设置进去，注意应该是添加一个子节点job，然后子节点中的数据就是对应job中的数据的副本
-                    // 注意不能让子节点随时去job中取，job可能修改数据
-                    String jobAssignPath = assignNodeCurrentPath + "/" + initJobPath;
-                    zooKeeper.create(jobAssignPath, JSON.toJSONString(initJobMessage).getBytes(), OPEN_ACL_UNSAFE , CreateMode.PERSISTENT);
-
-                    // zooKeeper.setData(assignNodeCurrentPath, JSON.toJSONString(initJobMessage).getBytes(), -1);
-                    LogUtils.printLog("分配jobMessage成功，path为  " + assignNodeCurrentPath
-                            + " ，数据为 " + JSON.toJSONString(initJobMessage));
-                    assignSuccess = true;
-
-                    break;
+                // 查询其有无子节点，如果没有子节点，说明可以分配给任务
+                List<String> assignSlaveChildNodeList = zooKeeper.getChildren(assignSlaveCurrentPath, false);
+                if (CollectionUtils.isNotEmpty(assignSlaveChildNodeList)) {
+                    LogUtils.printLog("节点路径为 " + assignSlaveCurrentPath + " 的节点已有任务执行");
+                    continue;
                 }
-            }
 
+                // 给assign的对应节点增加一个子节点
+                String jobAssignPath = assignSlaveCurrentPath + "/" + initJobPath;
+                zooKeeper.create(jobAssignPath, JSON.toJSONString(initJobMessage).getBytes(), OPEN_ACL_UNSAFE , CreateMode.PERSISTENT);
+
+                LogUtils.printLog("分配jobMessage成功，path为  " + jobAssignPath
+                        + " ，数据为 " + JSON.toJSONString(initJobMessage));
+                assignSuccess = true;
+                break;
+            }
             LogUtils.printLog("分配  " + (assignSuccess ? "成功" : "失败"));
 
         } catch (KeeperException e) {
